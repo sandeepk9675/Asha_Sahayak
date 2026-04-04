@@ -1,0 +1,13 @@
+command:
+  - "python"
+  - "app/main.py"
+
+env:
+  - name: SARVAM_API_KEY
+    valueFrom: "asha-sahayak.sarvam-api-key"
+  - name: HF_API_KEY
+    valueFrom: "asha-sahayak.hf-api-key"
+  - name: ASHA_DELTA_BASE
+    value: "/dbfs/asha_sahayak/delta"
+  - name: ASHA_FAISS_PATH
+    value: "/dbfs/asha_sahayak/faiss"

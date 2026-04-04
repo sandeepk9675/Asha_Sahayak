@@ -38,6 +38,7 @@ ASHA-Sahayak helps India's 1 million+ ASHA (Accredited Social Health Activist) w
 
 ```
 Asha_Sahayak/
+├── app.yml                      # Databricks App config (entry point + env)
 ├── app/
 │   └── main.py                  # Gradio frontend application
 ├── src/
@@ -225,24 +226,35 @@ This demonstrates three complete scenarios:
 
 ### Step 8: Deploy the Gradio App
 
+The project includes an `app.yml` that Databricks Apps uses for configuration:
+
+```yaml
+# app.yml (already included in the repo)
+command:
+  - "python"
+  - "app/main.py"
+
+env:
+  - name: SARVAM_API_KEY
+    valueFrom: "asha-sahayak.sarvam-api-key"   # reads from Databricks Secrets
+  - name: HF_API_KEY
+    valueFrom: "asha-sahayak.hf-api-key"
+  - name: ASHA_DELTA_BASE
+    value: "/dbfs/asha_sahayak/delta"
+  - name: ASHA_FAISS_PATH
+    value: "/dbfs/asha_sahayak/faiss"
+```
+
 **Option A — Databricks App (Recommended):**
 
 1. In your workspace, go to **Apps** (or **Compute** → **Apps**)
 2. Click **Create App**
-3. Configure:
-   - **Name:** `asha-sahayak`
-   - **Source:** Point to `app/main.py`
-   - **Framework:** Gradio
-   - **Cluster:** Your compute cluster
-4. Add environment variables:
-   ```
-   SARVAM_API_KEY=your-key
-   HF_API_KEY=your-key
-   ASHA_DELTA_BASE=/dbfs/asha_sahayak/delta
-   ASHA_FAISS_PATH=/dbfs/asha_sahayak/faiss
-   ```
-5. Click **Deploy**
-6. Access your app at: `https://<workspace-url>/apps/asha-sahayak`
+3. Set **Name:** `asha-sahayak`
+4. Set **Source path** to the repo root (where `app.yml` lives)
+5. Databricks reads `app.yml` automatically — it configures the entry point (`app/main.py`) and pulls secrets from the `asha-sahayak` scope
+6. Make sure you've already created the secrets in Step 4
+7. Click **Deploy**
+8. Access your app at: `https://<workspace-url>/apps/asha-sahayak`
 
 **Option B — Run from Notebook:**
 
