@@ -25,15 +25,24 @@ if project_root not in sys.path:
 
 # COMMAND ----------
 
-# Set base path for Delta tables on DBFS
+# DBTITLE 1,Cell 3
+# Use Unity Catalog managed tables instead of DBFS
 import os
-os.environ["ASHA_DELTA_BASE"] = "/dbfs/asha_sahayak/delta"
+# Set catalog and schema for Delta tables
+os.environ["ASHA_CATALOG"] = "workspace"
+os.environ["ASHA_SCHEMA"] = "default"
 
-# Create the base directory on DBFS
-dbutils.fs.mkdirs("dbfs:/asha_sahayak/delta")
-print("Base directory created: dbfs:/asha_sahayak/delta")
+print("Using Unity Catalog: workspace.default")
+print("Tables will be created as managed tables with automatic storage")
 
 # COMMAND ----------
+
+# DBTITLE 1,Cell 4
+import sys
+
+# Force reload delta_utils to get latest changes
+if 'src.utils.delta_utils' in sys.modules:
+    del sys.modules['src.utils.delta_utils']
 
 from src.utils.delta_utils import get_spark, create_all_tables, SCHEMAS
 
@@ -46,14 +55,18 @@ create_all_tables(spark)
 
 # COMMAND ----------
 
-# Verify tables were created
-for table_name in SCHEMAS.keys():
-    path = f"/dbfs/asha_sahayak/delta/{table_name}"
+# DBTITLE 1,Cell 6
+# Verify Unity Catalog tables were created
+catalog = os.environ.get("ASHA_CATALOG", "workspace")
+schema = os.environ.get("ASHA_SCHEMA", "default")
+
+for table in SCHEMAS.keys():
+    full_name = f"{catalog}.{schema}.{table}"
     try:
-        df = spark.read.format("delta").load(f"dbfs:/asha_sahayak/delta/{table_name}")
-        print(f"✅ {table_name}: {df.count()} rows, {len(df.columns)} columns")
+        df = spark.read.table(full_name)
+        print(f"✅ {full_name}: {df.count()} rows, {len(df.columns)} columns")
     except Exception as e:
-        print(f"❌ {table_name}: {e}")
+        print(f"❌ {full_name}: {e}")
 
 # COMMAND ----------
 

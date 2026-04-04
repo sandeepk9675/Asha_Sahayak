@@ -24,15 +24,16 @@ _chunk_metadata = None
 def _load_faiss_index():
     """Load FAISS index and chunk metadata from disk."""
     global _faiss_index, _chunk_metadata
-    
+
     if _faiss_index is not None:
         return _faiss_index, _chunk_metadata
-    
+
     try:
         import faiss
+
         index_file = os.path.join(FAISS_INDEX_PATH, "index.faiss")
         meta_file = os.path.join(FAISS_INDEX_PATH, "chunks_metadata.json")
-        
+
         if os.path.exists(index_file):
             _faiss_index = faiss.read_index(index_file)
             with open(meta_file, "r") as f:
@@ -46,41 +47,43 @@ def _load_faiss_index():
         print("faiss-cpu not installed. RAG will work without vector search.")
         _faiss_index = None
         _chunk_metadata = []
-    
+
     return _faiss_index, _chunk_metadata
 
 
 def search_guidelines(query: str, top_k: int = 5) -> list[dict]:
     """
     Search the FAISS vector store for relevant medical guidelines.
-    
+
     Args:
         query: Search query (in English)
         top_k: Number of results to return
-        
+
     Returns:
         List of {"text": ..., "source": ..., "score": ...} dicts
     """
     from src.api.embeddings_client import get_embeddings
-    
+
     index, metadata = _load_faiss_index()
-    
+
     if index is None or not metadata:
         return []
-    
+
     query_vector = get_embeddings([query])
-    
+
     distances, indices = index.search(query_vector, min(top_k, index.ntotal))
-    
+
     results = []
     for dist, idx in zip(distances[0], indices[0]):
         if idx < len(metadata) and idx >= 0:
-            results.append({
-                "text": metadata[idx].get("text", ""),
-                "source": metadata[idx].get("source", "unknown"),
-                "score": float(dist),
-            })
-    
+            results.append(
+                {
+                    "text": metadata[idx].get("text", ""),
+                    "source": metadata[idx].get("source", "unknown"),
+                    "score": float(dist),
+                }
+            )
+
     return results
 
 
@@ -91,21 +94,22 @@ def search_guidelines(query: str, top_k: int = 5) -> list[dict]:
 def assemble_patient_context(spark, patient_id: str) -> str:
     """
     Assemble comprehensive patient context from Delta Lake tables.
-    
+
     Returns a formatted string with patient profile, recent EHRs,
     recent conversations, and current risk status.
     """
     from src.utils.delta_utils import read_table
     from pyspark.sql import functions as F
-    
+
     context_parts = []
-    
+
     # 1. Patient Profile
     try:
         patients_df = read_table(spark, "patients_profiles")
         patient = patients_df.filter(F.col("patient_id") == patient_id).first()
         if patient:
             from datetime import date
+
             today = date.today()
             lmp = patient["lmp_date"]
             if lmp:
@@ -115,7 +119,7 @@ def assemble_patient_context(spark, patient_id: str) -> str:
             else:
                 gestational_weeks = 0
                 trimester = 0
-            
+
             context_parts.append(
                 f"## Patient Profile\n"
                 f"Name: {patient['name']}\n"
@@ -132,7 +136,7 @@ def assemble_patient_context(spark, patient_id: str) -> str:
             )
     except Exception as e:
         context_parts.append(f"[Patient profile unavailable: {e}]")
-    
+
     # 2. Recent EHR Records (last 3)
     try:
         ehr_df = read_table(spark, "ehr_records")
@@ -158,7 +162,7 @@ def assemble_patient_context(spark, patient_id: str) -> str:
                 )
     except Exception:
         pass
-    
+
     # 3. Recent Conversations (last 3)
     try:
         conv_df = read_table(spark, "conversations")
@@ -177,7 +181,7 @@ def assemble_patient_context(spark, patient_id: str) -> str:
                 )
     except Exception:
         pass
-    
+
     # 4. Risk Assessments
     try:
         risk_df = read_table(spark, "risk_assessments")
@@ -198,7 +202,7 @@ def assemble_patient_context(spark, patient_id: str) -> str:
             )
     except Exception:
         pass
-    
+
     return "\n".join(context_parts)
 
 
@@ -245,25 +249,25 @@ def run_rag_pipeline(
     3. Build prompt with context
     4. Call LLM
     5. Parse response for health updates
-    
+
     Args:
         spark: SparkSession
         patient_id: Patient UUID
         user_query: User's query (already translated to English)
         input_type: TEXT, AUDIO, IMAGE
-        
+
     Returns:
         {
             "response": str,           # LLM response
-            "health_updates": dict,     # Extracted health data
-            "guidelines_used": list,    # Retrieved guideline chunks
-            "latency_ms": float,        # Total pipeline latency
+            "health_updates": dict,    # Extracted health data
+            "guidelines_used": list,   # Retrieved guideline chunks
+            "latency_ms": float,       # Total pipeline latency
         }
     """
     from src.api.sarvam_client import chat_completion
-    
+
     start_time = time.time()
-    
+
     # Step 1: Search guidelines
     guidelines = search_guidelines(user_query, top_k=5)
     guidelines_text = ""
@@ -271,29 +275,32 @@ def run_rag_pipeline(
         guidelines_text = "\n\n## Relevant Medical Guidelines\n"
         for g in guidelines:
             guidelines_text += f"\n[Source: {g['source']}]\n{g['text']}\n"
-    
+
     # Step 2: Assemble patient context
     patient_context = assemble_patient_context(spark, patient_id)
-    
+
     # Step 3: Build messages
     full_context = f"{patient_context}\n{guidelines_text}"
-    
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Patient Context:\n{full_context}\n\nASHA Worker's Query:\n{user_query}"},
+        {
+            "role": "user",
+            "content": f"Patient Context:\n{full_context}\n\nASHA Worker's Query:\n{user_query}",
+        },
     ]
-    
+
     # Step 4: Call LLM
     response_text = chat_completion(messages)
-    
+
     # Step 5: Parse health updates from response
     health_updates = _extract_health_updates(response_text)
-    
+
     latency_ms = (time.time() - start_time) * 1000
-    
-    # Step 6: Log to MLflow (best effort)
+
+    # Step 6: Log to MLflow (best effort, disabled by default)
     _log_to_mlflow(user_query, response_text, guidelines, latency_ms)
-    
+
     return {
         "response": _clean_response(response_text),
         "health_updates": health_updates,
@@ -312,7 +319,7 @@ def _extract_health_updates(response_text: str) -> dict:
         "symptoms": [],
         "risk_flags": [],
     }
-    
+
     try:
         # Look for the health_updates JSON block
         if "```health_updates" in response_text:
@@ -321,7 +328,7 @@ def _extract_health_updates(response_text: str) -> dict:
             return {**default, **parsed}
     except (json.JSONDecodeError, IndexError):
         pass
-    
+
     return default
 
 
@@ -333,13 +340,24 @@ def _clean_response(response_text: str) -> str:
 
 
 def _log_to_mlflow(query: str, response: str, guidelines: list, latency_ms: float):
-    """Best-effort logging to MLflow."""
+    """
+    Best-effort logging to MLflow.
+
+    Disabled by default to avoid Spark Connect / Databricks MLflow config noise.
+    Enable only by setting:
+        os.environ["ASHA_ENABLE_MLFLOW_LOGGING"] = "true"
+    """
+    enabled = os.environ.get("ASHA_ENABLE_MLFLOW_LOGGING", "false").strip().lower() == "true"
+    if not enabled:
+        return
+
     try:
         import mlflow
+
         with mlflow.start_run(run_name="rag_inference", nested=True):
             mlflow.log_param("query", query[:250])
             mlflow.log_metric("latency_ms", latency_ms)
             mlflow.log_metric("num_guidelines_retrieved", len(guidelines))
             mlflow.log_param("response_length", len(response))
-    except Exception:
-        pass  # MLflow logging is best-effort
+    except Exception as e:
+        print(f"MLflow logging skipped: {e}")

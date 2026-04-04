@@ -13,13 +13,13 @@ from typing import Optional
 
 def _get_hf_api_key() -> str:
     """Get HuggingFace API key."""
-    key = os.environ.get("HF_API_KEY", "")
+    key = os.environ.get("hf_api_key", "")
     if not key:
         try:
             from pyspark.sql import SparkSession
             spark = SparkSession.getActiveSession()
             if spark:
-                key = spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils().secrets().get("asha-sahayak", "hf-api-key")
+                key = spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils().secrets().get("asha-sahayak", "hf_api_key")
         except Exception:
             pass
     return key

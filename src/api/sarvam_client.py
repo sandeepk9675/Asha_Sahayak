@@ -17,13 +17,13 @@ from typing import Optional
 
 def _get_api_key() -> str:
     """Get Sarvam API key from env or Databricks secrets."""
-    key = os.environ.get("SARVAM_API_KEY", "")
+    key = os.environ.get("sarvam_api_key", "")
     if not key:
         try:
             from pyspark.sql import SparkSession
             spark = SparkSession.getActiveSession()
             if spark:
-                key = spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils().secrets().get("asha-sahayak", "sarvam-api-key")
+                key = spark._jvm.com.databricks.dbutils_v1.DBUtilsHolder.dbutils().secrets().get("asha-sahayak", "sarvam_api_key")
         except Exception:
             pass
     return key
@@ -101,32 +101,50 @@ def _databricks_llm_fallback(
     temperature: float = 0.3,
     max_tokens: int = 2048,
 ) -> str:
-    """Fallback to Databricks Foundation Model API (Meta Llama 3)."""
+    """Fallback to Databricks Foundation Model API (Meta Llama 3.3)."""
     token = _get_databricks_token()
     host = os.environ.get("DATABRICKS_HOST", "")
     
     if not token or not host:
         return "[Error: No LLM API available. Please configure SARVAM_API_KEY or DATABRICKS_TOKEN.]"
     
-    try:
-        response = requests.post(
-            f"{host}/serving-endpoints/databricks-meta-llama-3-1-70b-instruct/invocations",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-            timeout=120,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"[LLM Fallback Error: {e}]"
+    # Try multiple possible endpoints in order of preference
+    endpoints = [
+        "databricks-meta-llama-3-3-70b-instruct",
+        "databricks-meta-llama-3-1-70b-instruct",
+        "databricks-llama-2-70b-chat",
+    ]
+    
+    for endpoint in endpoints:
+        try:
+            response = requests.post(
+                f"{host}/serving-endpoints/{endpoint}/invocations",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                # Endpoint doesn't exist, try next one
+                continue
+            else:
+                # Other HTTP error, return it
+                return f"[LLM Fallback Error: {e}]"
+        except Exception as e:
+            # Non-HTTP error, return it
+            return f"[LLM Fallback Error: {e}]"
+    
+    return f"[Error: No available Databricks serving endpoints found. Tried: {', '.join(endpoints)}]"
 
 
 # ---------------------------------------------------------------------------
@@ -248,10 +266,15 @@ def text_to_speech(
     output_path: str = "/tmp/asha_tts_output.wav",
 ) -> Optional[str]:
     """
-    Convert text to speech using Sarvam TTS API.
+    Convert text to speech using Sarvam Bulbul TTS API.
     
+    Args:
+        text: Text to convert
+        language_code: BCP-47 language code
+        output_path: Path to save audio file
+        
     Returns:
-        Path to output audio file, or None on error.
+        Path to output audio file, or None on error
     """
     api_key = _get_api_key()
     if not api_key:
@@ -265,22 +288,18 @@ def text_to_speech(
                 "Content-Type": "application/json",
             },
             json={
-                "input": text,
                 "language_code": language_code,
-                "model": "bulbul:v2",
-                "speaker": "anila",
+                "text": text,
+                "model": "bulbul:v1",
+                "speaker": "meera",
             },
             timeout=30,
         )
         response.raise_for_status()
-        data = response.json()
         
-        if "audio" in data:
-            audio_bytes = base64.b64decode(data["audio"])
-            with open(output_path, "wb") as f:
-                f.write(audio_bytes)
-            return output_path
-        return None
-    except Exception as e:
-        print(f"TTS Error: {e}")
+        with open(output_path, "wb") as f:
+            f.write(response.content)
+        
+        return output_path
+    except Exception:
         return None

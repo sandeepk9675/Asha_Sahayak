@@ -2,7 +2,7 @@
 
 **AI-Powered Multilingual Maternal Health Assistant for ASHA Workers**
 
-ASHA-Sahayak helps India's 1 million+ ASHA (Accredited Social Health Activist) workers deliver better maternal healthcare to pregnant women in rural areas. It combines voice-first multilingual AI, electronic health records, automated risk detection, and personalized nutrition planning — all running on Databricks.
+ASHA-Sahayak helps India's 1 million+ ASHA (Accredited Social Health Activist) workers deliver better maternal healthcare to pregnant women in rural areas. It combines voice-first multilingual AI, electronic health records, automated risk detection, and personalized nutrition planning — all running on Databricks with Unity Catalog.
 
 ---
 
@@ -19,18 +19,20 @@ ASHA-Sahayak helps India's 1 million+ ASHA (Accredited Social Health Activist) w
 ├──────────┼──────────────────────────────┤
 │ API Layer│  Sarvam AI · HuggingFace     │
 ├──────────┼──────────────────────────────┤
-│ Storage  │  Delta Lake · FAISS · MLflow │
+│ Storage  │  Unity Catalog · FAISS · MLflow │
 └──────────┴──────────────────────────────┘
 ```
 
 **Key Technologies:**
-- **PySpark + Delta Lake** — Versioned data storage (7 tables)
+- **Unity Catalog + Delta Lake** — Managed tables (7 tables in workspace.default)
+- **Unity Catalog Volumes** — Vector index storage (/Volumes/workspace/default/asha_sahayak)
 - **FAISS** — Vector search for medical guideline retrieval
 - **Sarvam AI** — Indian-language LLM, STT, OCR, Translation
 - **HuggingFace** — Multilingual embeddings (e5-small)
 - **Databricks Foundation Model API** — Llama 3 fallback LLM
-- **MLflow** — Experiment tracking
+- **MLflow** — Experiment tracking (workspace registry)
 - **Gradio** — Web UI deployed as Databricks App
+- **Serverless Compute** — Auto-scaling, no cluster management required
 
 ---
 
@@ -58,11 +60,11 @@ Asha_Sahayak/
 │   │   ├── chat_service.py      # Conversation manager
 │   │   └── dashboard_service.py # Village dashboard aggregation
 │   └── utils/
-│       └── delta_utils.py       # Delta Lake helpers & schemas
+│       └── delta_utils.py       # Delta Lake helpers & schemas (Unity Catalog)
 ├── notebooks/
-│   ├── 01_setup_delta_tables.py # Create Delta tables
+│   ├── 01_setup_delta_tables.py # Create Unity Catalog tables
 │   ├── 02_seed_data.py          # Seed sample patients & EHRs
-│   ├── 03_ingest_knowledge_base.py  # Build FAISS index
+│   ├── 03_ingest_knowledge_base.py  # Build FAISS index in UC volume
 │   ├── 04_setup_mlflow.py       # Configure MLflow experiment
 │   └── 05_demo_scenarios.py     # End-to-end demo walkthrough
 ├── data/
@@ -83,11 +85,12 @@ Asha_Sahayak/
 
 ## 🔑 Prerequisites
 
-1. **Databricks Workspace** (Community Edition or higher)
-2. **API Keys** (get free-tier keys):
+1. **Databricks Workspace** with Unity Catalog enabled
+2. **Serverless Compute** (auto-enabled for notebooks in Unity Catalog-enabled workspaces)
+3. **API Keys** (get free-tier keys):
    - [Sarvam AI](https://www.sarvam.ai/) — `SARVAM_API_KEY`
    - [HuggingFace](https://huggingface.co/settings/tokens) — `HF_API_KEY`
-3. **Python 3.10+**
+4. **Python 3.10+**
 
 ---
 
@@ -95,9 +98,9 @@ Asha_Sahayak/
 
 ### Step 1: Set Up Databricks Workspace
 
-1. Go to [Databricks Community Edition](https://community.cloud.databricks.com/) and sign up (free)
-2. Or use your organization's Databricks workspace
-3. Make sure you have access to **Repos**, **Notebooks**, and **Compute**
+1. Go to your Databricks workspace (Unity Catalog enabled)
+2. Make sure you have access to **Repos**, **Notebooks**, and **Serverless Compute**
+3. Verify Unity Catalog is available: Check **Data** → **Catalogs**
 
 ### Step 2: Clone the Repository
 
@@ -112,13 +115,16 @@ Asha_Sahayak/
 2. Upload all project files maintaining the directory structure
 3. Upload notebooks (`.py` files in `notebooks/`) — Databricks auto-detects `# Databricks notebook source`
 
-### Step 3: Create a Compute Cluster
+### Step 3: Serverless Compute (No Cluster Setup Needed!)
 
+**Good news:** With Unity Catalog and serverless compute, you don't need to create a cluster manually! Serverless compute auto-starts when you run a notebook cell.
+
+If you prefer a dedicated cluster:
 1. Go to **Compute** → **Create Cluster**
 2. Configuration:
    - **Name:** `asha-sahayak-cluster`
    - **Runtime:** Databricks Runtime **14.3 LTS** or later (includes Spark 3.5+)
-   - **Node type:** Single Node (for Community Edition) or smallest available
+   - **Node type:** Single Node or smallest available
    - **Auto-termination:** 60 minutes
 3. Click **Create Cluster** and wait for it to start
 
@@ -157,27 +163,16 @@ os.environ["SARVAM_API_KEY"] = "your-sarvam-api-key-here"
 os.environ["HF_API_KEY"] = "your-huggingface-api-key-here"
 ```
 
-Or set cluster environment variables:
-1. Go to **Compute** → your cluster → **Edit**
-2. Under **Advanced Options** → **Spark** → **Environment Variables**
-3. Add:
-   ```
-   SARVAM_API_KEY=your-key-here
-   HF_API_KEY=your-key-here
-   ```
-
 ### Step 5: Install Dependencies
 
-Open a notebook and run:
+The `faiss-cpu` library needs to be installed. Add this cell at the beginning of notebook 03:
 
 ```python
-%pip install faiss-cpu httpx pdfplumber PyPDF2 sentence-transformers gradio mlflow
+%pip install faiss-cpu
+dbutils.library.restartPython()
 ```
 
-Or attach the `requirements.txt` to your cluster:
-1. Go to **Compute** → your cluster → **Libraries**
-2. Click **Install New** → **PyPI**
-3. Install each package, or upload `requirements.txt`
+Other required packages (httpx, pdfplumber, PyPDF2, sentence-transformers, gradio, mlflow) are typically pre-installed in Databricks Runtime.
 
 ### Step 6: Run Setup Notebooks (In Order!)
 
@@ -185,38 +180,40 @@ Or attach the `requirements.txt` to your cluster:
 
 | Order | Notebook | What It Does | Time |
 |-------|----------|-------------|------|
-| 1️⃣ | `01_setup_delta_tables.py` | Creates 7 Delta Lake tables at `/dbfs/asha_sahayak/delta` | ~1 min |
-| 2️⃣ | `02_seed_data.py` | Inserts 12 sample patients + 5 EHR records | ~2 min |
-| 3️⃣ | `03_ingest_knowledge_base.py` | Chunks medical guidelines → embeds → builds FAISS index | ~5 min |
-| 4️⃣ | `04_setup_mlflow.py` | Creates MLflow experiment + logs project params | ~1 min |
+| 1️⃣ | `01_setup_delta_tables.py` | Creates 7 Unity Catalog managed tables in `workspace.default` | ~1 min |
+| 2️⃣ | `02_seed_data.py` | Inserts 24 sample patients + 10 EHR records | ~2 min |
+| 3️⃣ | `03_ingest_knowledge_base.py` | Chunks medical guidelines → embeds → builds FAISS index in UC volume | ~5 min |
+| 4️⃣ | `04_setup_mlflow.py` | Creates MLflow experiment in workspace registry | ~1 min |
 
 **To run a notebook:**
 1. Open the notebook file from Repos/Workspace
-2. Attach to your cluster (top-right dropdown)
+2. Serverless compute will auto-attach (or manually attach your cluster)
 3. Click **Run All** or run cells one by one
 
 **Verify after each notebook:**
 ```python
-# After 01: Check tables exist
-display(spark.sql("SHOW TABLES IN default LIKE 'asha_*'"))
+# After 01: Check Unity Catalog tables exist
+display(spark.sql("SHOW TABLES IN workspace.default"))
 
-# After 02: Check patients
-display(spark.read.format("delta").load("/dbfs/asha_sahayak/delta/patients_profiles"))
+# After 02: Check patients data
+display(spark.read.table("workspace.default.patients_profiles"))
 
-# After 03: Check FAISS index
+# After 03: Check FAISS index in Unity Catalog volume
 import os
-print(os.listdir("/dbfs/asha_sahayak/faiss/"))
+print(os.listdir("/Volumes/workspace/default/asha_sahayak/faiss/"))
+# Expected: ['index.faiss', 'chunks_metadata.json']
 
-# After 04: Check MLflow
+# After 04: Check MLflow experiment
 import mlflow
-exp = mlflow.get_experiment_by_name("/Shared/asha-sahayak-experiment")
+mlflow.set_registry_uri("databricks")
+exp = mlflow.get_experiment_by_name("/Users/<your-email>/asha-sahayak-experiment")
 print(f"Experiment: {exp.name}, ID: {exp.experiment_id}")
 ```
 
 ### Step 7: Run the Demo Notebook
 
 1. Open `notebooks/05_demo_scenarios.py`
-2. Attach to your cluster
+2. Attach to serverless compute or your cluster
 3. Run all cells
 
 This demonstrates three complete scenarios:
@@ -229,7 +226,7 @@ This demonstrates three complete scenarios:
 The project includes an `app.yml` that Databricks Apps uses for configuration:
 
 ```yaml
-# app.yml (already included in the repo)
+# app.yml (updated for Unity Catalog)
 command:
   - "python"
   - "app/main.py"
@@ -239,10 +236,12 @@ env:
     valueFrom: "asha-sahayak.sarvam-api-key"   # reads from Databricks Secrets
   - name: HF_API_KEY
     valueFrom: "asha-sahayak.hf-api-key"
-  - name: ASHA_DELTA_BASE
-    value: "/dbfs/asha_sahayak/delta"
+  - name: ASHA_CATALOG
+    value: "workspace"
+  - name: ASHA_SCHEMA
+    value: "default"
   - name: ASHA_FAISS_PATH
-    value: "/dbfs/asha_sahayak/faiss"
+    value: "/Volumes/workspace/default/asha_sahayak/faiss"
 ```
 
 **Option A — Databricks App (Recommended):**
@@ -269,34 +268,12 @@ app = build_app()
 app.launch(share=True, server_port=8080)
 ```
 
-**Option C — Driver Proxy (Community Edition):**
-
-```python
-# In a notebook cell
-import os, sys
-sys.path.insert(0, "/Workspace/Repos/<your-username>/asha-sahayak/Asha_Sahayak")
-
-os.environ["SARVAM_API_KEY"] = "your-key-here"
-os.environ["HF_API_KEY"] = "your-key-here"
-
-from app.main import build_app
-app = build_app()
-
-# Launch with driver proxy for Community Edition
-app.launch(
-    server_name="0.0.0.0",
-    server_port=8080,
-    inline=False,
-    share=True,  # Creates a public URL
-)
-```
-
 ### Step 9: Verify Everything Works
 
 Open the Gradio app and test:
 
 1. **🏠 Dashboard** — Click "Refresh Dashboard" → see village stats, alerts
-2. **👤 Patients** — Click "Refresh List" → see 12 seeded patients
+2. **👤 Patients** — Click "Refresh List" → see 24 seeded patients
 3. **➕ Register** — Fill form → register a new patient
 4. **👩 Profile** → Select a patient → Load Profile
 5. **💬 Chat** — Type "What should I eat?" → get response in Hindi
@@ -316,20 +293,23 @@ Open the Gradio app and test:
 | `HF_API_KEY` | HuggingFace API token | Yes |
 | `DATABRICKS_TOKEN` | Databricks PAT (auto-set in notebooks) | Auto |
 | `DATABRICKS_HOST` | Workspace URL (auto-set in notebooks) | Auto |
-| `ASHA_DELTA_BASE` | Delta table storage path | Default: `/dbfs/asha_sahayak/delta` |
-| `ASHA_FAISS_PATH` | FAISS index storage path | Default: `/dbfs/asha_sahayak/faiss` |
+| `ASHA_CATALOG` | Unity Catalog name | Default: `workspace` |
+| `ASHA_SCHEMA` | Schema name | Default: `default` |
+| `ASHA_FAISS_PATH` | FAISS index storage path in UC volume | Default: `/Volumes/workspace/default/asha_sahayak/faiss` |
 
-### Delta Lake Tables
+### Unity Catalog Tables
+
+All tables are managed by Unity Catalog in `workspace.default`:
 
 | Table | Content |
 |-------|---------|
 | `patients_profiles` | Patient demographics, LMP, EDD, risk status |
 | `ehr_records` | Lab results (Hb, BP, sugar, etc.) |
-| `conversations` | Chat history (all languages) |
-| `checkup_schedules` | ANC visit schedule per PMSMA |
-| `ration_plans` | Weekly nutrition plans |
-| `risk_assessments` | Risk evaluation results |
-| `appointments` | Emergency/follow-up appointments |
+| `ifa_logs` | IFA supplement distribution tracking |
+| `anc_visits` | ANC visit schedule per PMSMA |
+| `nutrition_logs` | Dietary intake logs |
+| `risk_scores` | Risk evaluation results |
+| `notifications` | Alert and notification logs |
 
 ### API Endpoints Used
 
@@ -349,20 +329,29 @@ Open the Gradio app and test:
 ### Common Issues
 
 **"SparkSession not initialized"**
-- Make sure you're running on a Databricks cluster, not locally
-- Check cluster is in Running state
+- Make sure serverless compute is enabled in your workspace
+- Check that Unity Catalog is available
 
 **"API key not found"**
 - Verify `SARVAM_API_KEY` and `HF_API_KEY` are set
 - Check Databricks Secrets scope exists: `dbutils.secrets.listScopes()`
 
-**"Delta table not found"**
+**"Table not found" or "workspace.default.* cannot be found"**
 - Run `01_setup_delta_tables.py` first
-- Verify path: `dbutils.fs.ls("/dbfs/asha_sahayak/delta/")`
+- Verify catalog and schema: `spark.sql("SHOW TABLES IN workspace.default").show()`
 
 **"FAISS index not found"**
 - Run `03_ingest_knowledge_base.py` first
-- Verify: `dbutils.fs.ls("/dbfs/asha_sahayak/faiss/")`
+- Verify volume exists: `spark.sql("SHOW VOLUMES IN workspace.default").show()`
+- Check files: `dbutils.fs.ls("/Volumes/workspace/default/asha_sahayak/faiss/")`
+
+**"Permission denied on DBFS"**
+- This project uses Unity Catalog volumes, not DBFS
+- Ensure all paths reference `/Volumes/workspace/default/asha_sahayak/...`
+
+**"ModuleNotFoundError: No module named 'faiss'"**
+- Add `%pip install faiss-cpu` and `dbutils.library.restartPython()` to notebook 03
+- Re-run all cells after the restart
 
 **Gradio app not loading**
 - Check all imports resolve: run `import src.services.patient_service` in a notebook
@@ -372,6 +361,10 @@ Open the Gradio app and test:
 **LLM returns fallback response**
 - Sarvam API may be rate-limited; the system auto-falls back to Databricks Foundation Model API
 - Check `DATABRICKS_TOKEN` is set (auto-set inside Databricks)
+
+**MLflow "CONFIG_NOT_AVAILABLE" error**
+- Set registry URI explicitly: `mlflow.set_registry_uri("databricks")`
+- Use workspace experiment paths: `/Users/<email>/...` instead of `/Shared/...`
 
 ---
 
@@ -384,7 +377,7 @@ Built for the Databricks Hackathon. For demonstration and educational purposes.
 ## 🙏 Acknowledgments
 
 - **Sarvam AI** — India-first multilingual AI models
-- **Databricks** — Unified data + AI platform
+- **Databricks** — Unified data + AI platform with Unity Catalog
 - **PMSMA** (Pradhan Mantri Surakshit Matritva Abhiyan) — National ANC guidelines
 - **WHO** — ANC recommendation framework
 - **ICDS/SAKSHAM** — Nutrition program norms

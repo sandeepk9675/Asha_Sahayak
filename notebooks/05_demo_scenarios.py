@@ -9,20 +9,33 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install faiss-cpu httpx pdfplumber PyPDF2 --quiet
+# DBTITLE 1,Cell 2
+# MAGIC %pip install 'numpy<2' faiss-cpu httpx pdfplumber PyPDF2 --disable-pip-version-check
 
 # COMMAND ----------
 
+# DBTITLE 1,Restart Python
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
+# DBTITLE 1,Cell 3
 import os, sys, json
 from datetime import date, timedelta
 
 # Project root
-project_root = "/Workspace/Repos/asha-sahayak/Asha_Sahayak"
+project_root = "/Workspace/Users/hemasrisail@iisc.ac.in/Asha_Sahayak"
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-os.environ.setdefault("ASHA_DELTA_BASE", "/dbfs/asha_sahayak/delta")
-os.environ.setdefault("ASHA_FAISS_PATH", "/dbfs/asha_sahayak/faiss")
+# Use Unity Catalog instead of DBFS
+os.environ["ASHA_CATALOG"] = "workspace"
+os.environ["ASHA_SCHEMA"] = "default"
+os.environ["ASHA_FAISS_PATH"] = "/Volumes/workspace/default/asha_sahayak/faiss"
+
+# Force reload delta_utils to get Unity Catalog version
+if 'src.utils.delta_utils' in sys.modules:
+    del sys.modules['src.utils.delta_utils']
 
 from src.utils.delta_utils import get_spark
 from src.services.patient_service import register_patient, get_patient, list_patients
@@ -85,6 +98,125 @@ for s in schedules:
 
 # COMMAND ----------
 
+# DBTITLE 1,Load API Keys from Secrets
+# Load API keys from Databricks secrets
+try:
+    # Try to load Databricks token for Foundation Model API
+    databricks_token = dbutils.secrets.get(scope="asha-sahayak", key="databricks-token")
+    os.environ["DATABRICKS_TOKEN"] = databricks_token
+    print("✅ Loaded DATABRICKS_TOKEN from secrets")
+except Exception as e:
+    print(f"⚠️ Could not load DATABRICKS_TOKEN: {e}")
+    # Fallback to personal access token if available
+    try:
+        import requests
+        # Use notebook context token
+        context_token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+        os.environ["DATABRICKS_TOKEN"] = context_token
+        print("✅ Using notebook context token as DATABRICKS_TOKEN")
+    except:
+        print("❌ No DATABRICKS_TOKEN available")
+
+try:
+    # Try to load Sarvam AI API key for Hindi translation
+    sarvam_key = dbutils.secrets.get(scope="asha-sahayak", key="sarvam_api_key")
+    os.environ["SARVAM_API_KEY"] = sarvam_key
+    print("✅ Loaded SARVAM_API_KEY from secrets")
+except Exception as e:
+    print(f"⚠️ Could not load SARVAM_API_KEY: {e}")
+
+# Set DATABRICKS_HOST from workspace URL
+try:
+    workspace_url = spark.conf.get("spark.databricks.workspaceUrl")
+    os.environ["DATABRICKS_HOST"] = f"https://{workspace_url}"
+    print(f"✅ Set DATABRICKS_HOST to: https://{workspace_url}")
+except Exception as e:
+    print(f"⚠️ Could not set DATABRICKS_HOST: {e}")
+
+# Force reimport of delta_utils with new schemas
+import importlib
+import sys
+
+# Remove cached modules
+if 'src.utils.delta_utils' in sys.modules:
+    del sys.modules['src.utils.delta_utils']
+if 'src.services.chat_service' in sys.modules:
+    del sys.modules['src.services.chat_service']
+if 'src.pipeline.risk_engine' in sys.modules:
+    del sys.modules['src.pipeline.risk_engine']
+
+# Add missing risk_assessments schema directly to the source file
+from pyspark.sql.types import (
+    StructType, StructField, StringType, DateType, TimestampType, BooleanType
+)
+
+risk_assessments_schema = StructType([
+    StructField("assessment_id", StringType(), False),
+    StructField("patient_id", StringType(), True),
+    StructField("assessment_date", TimestampType(), True),
+    StructField("risk_level", StringType(), True),
+    StructField("risk_factors", StringType(), True),
+    StructField("recommended_action", StringType(), True),
+    StructField("emergency_flag", BooleanType(), True),
+    StructField("auto_appointment_created", BooleanType(), True),
+])
+
+# Read the delta_utils file
+with open("/Workspace/Users/hemasrisail@iisc.ac.in/Asha_Sahayak/src/utils/delta_utils.py", "r") as f:
+    content = f.read()
+
+# Check if risk_assessments schema already exists
+if '"risk_assessments"' not in content:
+    # Add the risk_assessments schema to SCHEMAS dict
+    schema_def = '''
+    "risk_assessments": StructType([
+        StructField("assessment_id", StringType(), False),
+        StructField("patient_id", StringType(), True),
+        StructField("assessment_date", TimestampType(), True),
+        StructField("risk_level", StringType(), True),
+        StructField("risk_factors", StringType(), True),
+        StructField("recommended_action", StringType(), True),
+        StructField("emergency_flag", BooleanType(), True),
+        StructField("auto_appointment_created", BooleanType(), True),
+    ]),'''
+    
+    # Insert before the closing brace of SCHEMAS
+    insert_pos = content.rfind('}', 0, content.find('# -----', content.find('SCHEMAS')))
+    new_content = content[:insert_pos] + schema_def + '\n' + content[insert_pos:]
+    
+    # Write back
+    with open("/Workspace/Users/hemasrisail@iisc.ac.in/Asha_Sahayak/src/utils/delta_utils.py", "w") as f:
+        f.write(new_content)
+    
+    print("✅ Added risk_assessments schema to delta_utils.py")
+else:
+    print("✓ risk_assessments schema already exists")
+
+# Now reimport with the new schema
+from src.utils.delta_utils import get_spark, create_table
+
+# Create missing tables
+print("\nCreating missing tables...")
+create_table(spark, "conversations")
+create_table(spark, "risk_assessments")
+print("\n✅ All required tables created")
+
+# COMMAND ----------
+
+# 1d. Chat in Hindi — ask about diet
+chat_result = chat(
+    spark,
+    patient_id=demo_patient_id,
+    message="गर्भावस्था में क्या खाना चाहिए?",  # "What should I eat during pregnancy?"
+    language="hi",
+    asha_id=ASHA_ID,
+)
+
+print(f"🤖 Response (Hindi):\n{chat_result['response']}\n")
+print(f"📝 English version:\n{chat_result.get('english_response', 'N/A')}")
+
+# COMMAND ----------
+
 # 1d. Chat in Hindi — ask about diet
 chat_result = chat(
     spark,
@@ -112,12 +244,14 @@ print(f"🤖 Response:\n{chat_result2['response']}")
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 12
 # 1f. View conversation history
 history = get_chat_history(spark, demo_patient_id)
 print(f"\n💬 Conversation ({len(history)} messages):")
 for h in history:
-    role_icon = "👩" if h["role"] == "user" else "🤖"
-    print(f"  {role_icon} [{h['language']}] {h['content'][:100]}...")
+    print(f"  👩 User: {h['user_message'][:100]}...")
+    print(f"  🤖 AI: {h['ai_response'][:100]}...")
+    print()
 
 # COMMAND ----------
 
@@ -158,11 +292,15 @@ print(f"\n  Patient risk_status in DB: {patient_updated['risk_status']}")
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 16
 # 2c. View all EHRs
-ehrs = get_patient_ehrs(spark, demo_patient_id)
+ehrs_df = spark.table("workspace.default.ehr_records").filter(f"patient_id = '{demo_patient_id}'").orderBy("visit_date")
+ehrs = ehrs_df.collect()
+
 print(f"\n📋 EHR Records ({len(ehrs)}):")
 for e in ehrs:
-    print(f"  {e['visit_date']}: Hb={e['hemoglobin']}, BP={e['bp']}, Weight={e['weight_kg']}kg, Urine={e['urine_albumin']}")
+    bp = f"{e['bp_systolic']}/{e['bp_diastolic']}"
+    print(f"  {e['visit_date']}: Hb={e['hemoglobin']}, BP={bp}, Weight={e['weight_kg']}kg, Urine Albumin={e['urine_albumin']}")
 
 # COMMAND ----------
 

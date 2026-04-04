@@ -3,9 +3,9 @@ command:
   - "app/main.py"
 
 env:
-  - name: SARVAM_API_KEY
+  - name: sarvam_api_key
     valueFrom: "asha-sahayak.sarvam-api-key"
-  - name: HF_API_KEY
+  - name: hf_api_key
     valueFrom: "asha-sahayak.hf-api-key"
   - name: ASHA_DELTA_BASE
     value: "/dbfs/asha_sahayak/delta"

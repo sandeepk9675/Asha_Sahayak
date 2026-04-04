@@ -182,7 +182,7 @@ def search_patients(spark, query: str, asha_id: str = None) -> list:
 
 def update_patient(spark, patient_id: str, **updates) -> dict:
     """Update patient profile fields."""
-    from src.utils.delta_utils import table_path
+    from src.utils.delta_utils import table_name
     from delta.tables import DeltaTable
     
     updates["last_updated"] = datetime.now()
@@ -206,11 +206,10 @@ def update_patient(spark, patient_id: str, **updates) -> dict:
 def _update_risk_status(spark, patient_id: str, risk_status: str):
     """Internal: update patient risk status."""
     try:
-        from src.utils.delta_utils import table_path
+        from src.utils.delta_utils import table_name
         from delta.tables import DeltaTable
         
-        path = table_path("patients_profiles")
-        delta_table = DeltaTable.forPath(spark, path)
+        delta_table = DeltaTable.forName(spark, table_name("patients_profiles"))
         delta_table.update(
             condition=F.col("patient_id") == patient_id,
             set={"risk_status": F.lit(risk_status), "last_updated": F.lit(datetime.now())},

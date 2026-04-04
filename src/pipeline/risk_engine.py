@@ -223,9 +223,9 @@ def assess_risk(
     # ---- Update patient risk status ----
     try:
         from delta.tables import DeltaTable
-        from src.utils.delta_utils import table_path
+        from src.utils.delta_utils import table_name
         
-        delta_table = DeltaTable.forPath(spark, table_path("patients_profiles"))
+        delta_table = DeltaTable.forName(spark, table_name("patients_profiles"))
         delta_table.update(
             condition=F.col("patient_id") == patient_id,
             set={

@@ -5,9 +5,12 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 2
 import sys, os
-os.environ["ASHA_DELTA_BASE"] = "/dbfs/asha_sahayak/delta"
-os.environ["ASHA_FAISS_PATH"] = "/dbfs/asha_sahayak/faiss"
+# Use Unity Catalog instead of DBFS
+os.environ["ASHA_CATALOG"] = "workspace"
+os.environ["ASHA_SCHEMA"] = "default"
+os.environ["ASHA_FAISS_PATH"] = "/Volumes/workspace/default/asha_sahayak/faiss"
 
 notebook_dir = os.getcwd()
 for candidate in [notebook_dir, os.path.dirname(notebook_dir), "/Workspace/Repos/asha-sahayak"]:
@@ -130,6 +133,16 @@ print(f"\nEmbeddings shape: {embeddings_matrix.shape}")
 
 # COMMAND ----------
 
+# DBTITLE 1,Install FAISS
+# MAGIC %pip install faiss-cpu
+
+# COMMAND ----------
+
+# DBTITLE 1,Restart Python
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 import faiss
 
 # Create FAISS index (Inner Product for cosine similarity on normalized vectors)
@@ -146,7 +159,9 @@ print(f"FAISS index built: {index.ntotal} vectors, dimension {dim}")
 
 # COMMAND ----------
 
-FAISS_DIR = os.environ.get("ASHA_FAISS_PATH", "/dbfs/asha_sahayak/faiss")
+# DBTITLE 1,Cell 14
+# Use Unity Catalog volume path (set in Cell 2)
+FAISS_DIR = os.environ.get("ASHA_FAISS_PATH", "/Volumes/workspace/default/asha_sahayak/faiss")
 os.makedirs(FAISS_DIR, exist_ok=True)
 
 # Save FAISS index

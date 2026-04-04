@@ -8,7 +8,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Optional
 
-from src.utils.delta_utils import read_table, append_rows
+from src.utils.delta_utils import read_table, append_rows, table_name
 from pyspark.sql import functions as F
 
 
@@ -274,12 +274,11 @@ def _store_schedules(spark, patient_id: str, schedules: list):
     
     try:
         from delta.tables import DeltaTable
-        from src.utils.delta_utils import table_path
         
         # Delete existing schedules for this patient, then insert new
-        path = table_path("checkup_schedules")
+        full_table_name = table_name("checkup_schedules")
         try:
-            delta_table = DeltaTable.forPath(spark, path)
+            delta_table = DeltaTable.forName(spark, full_table_name)
             delta_table.delete(F.col("patient_id") == patient_id)
         except Exception:
             pass

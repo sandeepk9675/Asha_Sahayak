@@ -251,12 +251,15 @@ def _rule_based_ration(
 def _llm_ration_plan(patient, trimester, weeks, hb, bmi, conditions, nutrition) -> tuple:
     """Use LLM to generate a personalized ration plan."""
     
+    # Format BMI value properly (FIX: avoid conditional in format specifier)
+    bmi_str = f"{bmi:.1f}" if bmi else "Unknown"
+    
     prompt = f"""Generate a personalized weekly ration plan for this pregnant woman:
 
 Patient: {patient['name']}, Age {patient['age']}
 Trimester: {trimester} (Week {weeks})
 Hemoglobin: {hb} g/dL
-BMI: {bmi:.1f if bmi else 'Unknown'}
+BMI: {bmi_str}
 Conditions: {', '.join(conditions) if conditions else 'None'}
 Nutrition needs: +{nutrition['extra_kcal']}kcal/day, {nutrition['protein_g']}g protein/day
 

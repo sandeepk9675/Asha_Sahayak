@@ -9,8 +9,14 @@ import mlflow
 
 # COMMAND ----------
 
-# Set experiment name
-EXPERIMENT_NAME = "/Shared/asha-sahayak-experiment"
+# DBTITLE 1,Cell 3
+# Configure MLflow for workspace registry (not Unity Catalog)
+import os
+os.environ["MLFLOW_REGISTRY_URI"] = "databricks"
+mlflow.set_registry_uri("databricks")
+
+# Set experiment name (use workspace path for serverless)
+EXPERIMENT_NAME = "/Users/hemasrisail@iisc.ac.in/asha-sahayak-experiment"
 
 try:
     experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
@@ -28,10 +34,8 @@ try:
         experiment_id = experiment.experiment_id
         print(f"✅ Using existing experiment: {EXPERIMENT_NAME} (ID: {experiment_id})")
 except Exception as e:
-    # Fallback for local/free edition
-    experiment_id = mlflow.create_experiment("asha-sahayak") if not mlflow.get_experiment_by_name("asha-sahayak") else mlflow.get_experiment_by_name("asha-sahayak").experiment_id
-    EXPERIMENT_NAME = "asha-sahayak"
-    print(f"Using fallback experiment: {EXPERIMENT_NAME} (ID: {experiment_id})")
+    print(f"⚠️ Error: {e}")
+    raise
 
 mlflow.set_experiment(EXPERIMENT_NAME)
 

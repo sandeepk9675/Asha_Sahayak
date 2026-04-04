@@ -5,8 +5,11 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 2
 import sys, os
-os.environ["ASHA_DELTA_BASE"] = "/dbfs/asha_sahayak/delta"
+# Use Unity Catalog instead of DBFS
+os.environ["ASHA_CATALOG"] = "workspace"
+os.environ["ASHA_SCHEMA"] = "default"
 
 notebook_dir = os.getcwd()
 for candidate in [notebook_dir, os.path.dirname(notebook_dir), "/Workspace/Repos/asha-sahayak"]:
@@ -17,9 +20,15 @@ for candidate in [notebook_dir, os.path.dirname(notebook_dir), "/Workspace/Repos
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 3
 from datetime import datetime, date, timedelta
 import uuid
 import json
+
+# Force reload delta_utils to get latest changes
+if 'src.utils.delta_utils' in sys.modules:
+    del sys.modules['src.utils.delta_utils']
+
 from src.utils.delta_utils import get_spark, append_rows, read_table
 
 spark = get_spark()

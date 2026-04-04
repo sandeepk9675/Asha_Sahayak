@@ -35,8 +35,7 @@ def get_dashboard_data(spark, asha_id: str = None) -> dict:
     if asha_id:
         patients_df = patients_df.filter(F.col("asha_id") == asha_id)
     
-    # Cache for reuse
-    patients_df.cache()
+    # Note: cache() is not supported on serverless compute
     
     result = {
         "today_date": str(today),
@@ -49,7 +48,6 @@ def get_dashboard_data(spark, asha_id: str = None) -> dict:
         "upcoming_deliveries": _get_upcoming_deliveries(patients_df, today),
     }
     
-    patients_df.unpersist()
     return result
 
 
@@ -111,6 +109,7 @@ def _get_today_schedule(spark, patients_df, today) -> list:
                 "village": v["village"],
                 "risk_status": v["risk_status"],
                 "visit_type": v["visit_type"],
+                "visit_number": v.get("visit_number", 0),
                 "tests_due": json.loads(v["tests_due"]) if v["tests_due"] else [],
             }
             for v in visits
