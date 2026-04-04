@@ -1,0 +1,29 @@
+# ASHA-Sahayak Dependencies
+# Install on Databricks cluster or locally
+
+# Core
+pyspark>=3.4.0
+delta-spark>=2.4.0
+
+# AI / ML
+faiss-cpu>=1.7.4
+sentence-transformers>=2.2.0
+mlflow>=2.8.0
+
+# API clients
+requests>=2.31.0
+httpx>=0.25.0
+
+# PDF processing
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+
+# UI
+gradio>=4.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+uuid6>=2024.1.12
+Pillow>=10.0.0
+numpy>=1.24.0
+pandas>=2.0.0

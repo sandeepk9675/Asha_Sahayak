@@ -1,0 +1,6 @@
+ehr_id,patient_id,visit_date,hemoglobin,bp_systolic,bp_diastolic,weight_kg,blood_sugar_fasting,blood_sugar_pp,urine_albumin,usg_findings,prescribed_medicines,source,raw_text
+EHR001,PAT001,2025-05-15,11.5,110,70,54,85,,Normal,Normal single live fetus,IFA 1 tab daily,manual,
+EHR002,PAT002,2025-05-10,9.2,120,80,47,90,,Trace,,IFA 2 tabs daily; Calcium,manual,
+EHR003,PAT004,2025-04-20,6.8,170,115,57,140,195,++,Oligohydramnios noted,Methyldopa 250mg TDS; Iron sucrose IV; Insulin,manual,
+EHR004,PAT005,2025-05-20,10.0,135,85,50,110,,Normal,Normal growth,Nifedipine 10mg; IFA 1 tab,manual,
+EHR005,PAT009,2025-05-25,10.8,125,82,67,95,,Normal,Normal twin pregnancy,IFA 1 tab; Calcium 500mg,manual,
