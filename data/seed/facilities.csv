@@ -1,0 +1,6 @@
+facility_id,facility_name,facility_type,address,district,contact,available_services
+FAC001,PHC Rampur,PHC,Rampur Main Road,Varanasi,0542-2123456,"ANC checkup, IFA distribution, BP monitoring, Hb test"
+FAC002,CHC Lakshmipur,CHC,NH-2 Lakshmipur,Varanasi,0542-2234567,"ANC checkup, USG, Blood tests, GDM screening, Emergency referral"
+FAC003,District Hospital Varanasi,DH,Lanka Varanasi,Varanasi,0542-2345678,"High-risk pregnancy, C-section, Blood bank, NICU, ICU"
+FAC004,Anganwadi Centre Rampur,AWC,Rampur Village,Varanasi,9876500001,"Nutrition supplement, Weight monitoring, Health education"
+FAC005,Anganwadi Centre Lakshmipur,AWC,Lakshmipur Village,Varanasi,9876500002,"Nutrition supplement, Weight monitoring, Health education"

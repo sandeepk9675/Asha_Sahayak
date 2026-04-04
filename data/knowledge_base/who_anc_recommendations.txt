@@ -1,0 +1,108 @@
+WHO ANTENATAL CARE RECOMMENDATIONS
+=====================================
+
+OVERVIEW:
+The WHO recommends a minimum of 8 antenatal care (ANC) contacts during pregnancy
+to reduce perinatal mortality and improve women's experience of care.
+
+RECOMMENDED ANC CONTACT SCHEDULE:
+- Contact 1: Up to 12 weeks
+- Contact 2: 20 weeks
+- Contact 3: 26 weeks
+- Contact 4: 30 weeks
+- Contact 5: 34 weeks
+- Contact 6: 36 weeks
+- Contact 7: 38 weeks
+- Contact 8: 40 weeks
+
+NOTE: India's PMSMA follows a minimum 4-visit model adapted for resource settings.
+
+NUTRITIONAL INTERVENTIONS:
+
+A. Dietary Counseling:
+- Balanced energy and protein dietary supplementation for undernourished populations
+- Caloric increase in pregnancy: +340 kcal/day (2nd trimester), +450 kcal/day (3rd trimester)
+- Emphasis on diverse diet: cereals, legumes, fruits, vegetables, dairy, eggs, fish/meat
+
+B. Iron and Folic Acid:
+- Daily oral iron: 30-60 mg elemental iron
+- Daily folic acid: 400 mcg
+- Start as early as possible, continue through pregnancy
+- In populations with high anemia prevalence (>40%): 60mg iron recommended
+
+C. Calcium:
+- Daily calcium: 1.5-2g (in populations with low calcium intake)
+- Reduces risk of pre-eclampsia, preterm birth, and maternal mortality
+- From 20 weeks onwards
+
+D. Vitamin A:
+- Only in areas with severe vitamin A deficiency (not routinely recommended)
+- Maximum dose: 10,000 IU daily or 25,000 IU weekly
+
+E. Zinc, Multiple Micronutrients:
+- Zinc: Not routinely recommended
+- Multiple micronutrient supplements: May replace IFA in context of rigorous research
+
+MATERNAL ASSESSMENT:
+
+A. Anemia Detection:
+- Full blood count recommended at first visit
+- Hemoglobin testing at each contact where possible
+- Anemia classification:
+  * Normal: Hb ≥ 11 g/dL
+  * Mild anemia: Hb 10-10.9 g/dL
+  * Moderate anemia: Hb 7-9.9 g/dL
+  * Severe anemia: Hb < 7 g/dL (EMERGENCY - immediate referral)
+
+B. Gestational Diabetes:
+- Hyperglycemia first detected in pregnancy:
+  * Diabetes in pregnancy: Fasting glucose ≥ 7.0 mmol/L (126 mg/dL)
+  * Gestational diabetes: Fasting glucose 5.1-6.9 mmol/L (92-125 mg/dL)
+- OGTT (Oral Glucose Tolerance Test) recommended at 24-28 weeks
+- Management: Diet modification first, then insulin if needed
+
+C. Hypertensive Disorders:
+- BP measurement at every ANC contact
+- Classification:
+  * Normal: <120/80 mmHg
+  * Elevated: 120-129/<80 mmHg
+  * Hypertension Stage 1: 130-139/80-89 mmHg
+  * Hypertension Stage 2: ≥140/90 mmHg
+  * Hypertensive Crisis: >180/120 mmHg
+- Pre-eclampsia: BP ≥140/90 + proteinuria after 20 weeks
+- Severe pre-eclampsia: BP ≥160/110 + symptoms (headache, visual disturbances, epigastric pain)
+- Eclampsia: Pre-eclampsia + seizures (EMERGENCY)
+- Management:
+  * Mild: Monitor, low-dose aspirin if risk factors present
+  * Severe: Immediate hospitalization, antihypertensive therapy, consider delivery
+
+D. Fetal Assessment:
+- Symphysis-fundal height measurement at each visit after 24 weeks
+- Fetal heart rate detection (Doppler from 12 weeks, stethoscope from 20 weeks)
+- Fetal movement counting from 28 weeks
+- Ultrasound: At least one scan before 24 weeks (dating, anomaly screening)
+
+PREVENTIVE MEASURES:
+1. Tetanus toxoid vaccination
+2. Deworming (after first trimester)
+3. Malaria prevention in endemic areas (ITN, IPTp)
+4. HIV testing (opt-out approach)
+5. Syphilis testing and treatment
+6. Hepatitis B screening
+
+COUNSELING TOPICS:
+1. Nutrition and diet
+2. Physical activity (moderate exercise encouraged)
+3. Sexual health
+4. Danger signs recognition
+5. Birth preparedness
+6. Breastfeeding preparation
+7. Family planning
+8. Substance use cessation (tobacco, alcohol)
+9. Violence screening
+10. Mental health awareness (anxiety, depression screening)
+
+DRUG SAFETY IN PREGNANCY:
+Safe: Paracetamol, IFA, calcium, folic acid, methyldopa (for BP), insulin
+Avoid: NSAIDs (after 28 weeks), ACE inhibitors, certain antibiotics (tetracycline, aminoglycosides)
+Consult: Antidepressants, antiepileptics, anticoagulants
