@@ -313,7 +313,7 @@ def chat_with_audio(patient_id, audio, language, history):
         )
         
         history = history or []
-        history.append({"role": "user", "content": f"🎤 {result.get('english_response', 'Voice message')}"[:100]})
+        history.append({"role": "user", "content": f"🎤 {result.get('english_response', 'Voice message')}"}[:100])
         
         response = result["response"]
         if result.get("risk_alert"):
@@ -551,7 +551,7 @@ def build_app():
                 label="🌐 Language / भाषा",
                 scale=1,
             )
-            gr.Markdown(f"**ASHA:** {CURRENT_ASHA_ID} | **Date:** {date.today()}", scale=2)
+            gr.Markdown(f"**ASHA:** {CURRENT_ASHA_ID} | **Date:** {date.today()}")
         
         # ============================================================
         # TAB: DASHBOARD
