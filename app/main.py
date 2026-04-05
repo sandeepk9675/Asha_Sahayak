@@ -28,7 +28,7 @@ if project_root not in sys.path:
 # ---------------------------------------------------------------------------
 # Import Services
 # ---------------------------------------------------------------------------
-from src.utils.delta_utils import get_spark
+from src.utils.delta_utils import get_spark, init_all_tables
 from src.services.patient_service import (
     register_patient, get_patient, list_patients,
     search_patients, get_patients_dataframe,
@@ -48,14 +48,14 @@ from src.pipeline.risk_engine import get_patient_risk_summary
 from src.pipeline.language_pipeline import get_supported_languages
 
 # ---------------------------------------------------------------------------
-# Initialize Spark
+# Initialize Data Layer (Pandas + CSV — no Spark/Java required)
 # ---------------------------------------------------------------------------
+spark = None  # Kept for API compatibility; services now use Pandas internally
 try:
-    spark = get_spark()
-    print("SparkSession initialized successfully")
+    init_all_tables()
+    print("CSV data tables initialized successfully")
 except Exception as e:
-    print(f"Warning: Could not initialize Spark: {e}")
-    spark = None
+    print(f"Warning: Could not initialize data tables: {e}")
 
 # Current ASHA ID (in production, this would come from authentication)
 CURRENT_ASHA_ID = "ASHA001"

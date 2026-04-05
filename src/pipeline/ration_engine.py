@@ -9,9 +9,10 @@ import uuid
 from datetime import datetime, date, timedelta
 from typing import Optional
 
-from src.utils.delta_utils import get_spark, read_table, append_rows
+import pandas as pd
+
+from src.utils.delta_utils import read_table, append_rows
 from src.api.sarvam_client import chat_completion
-from pyspark.sql import functions as F
 
 
 # ---------------------------------------------------------------------------
@@ -89,15 +90,17 @@ def generate_ration_plan(
     """
     # Get patient data
     patients_df = read_table(spark, "patients_profiles")
-    patient = patients_df.filter(F.col("patient_id") == patient_id).first()
+    patient_row = patients_df[patients_df["patient_id"] == patient_id]
     
-    if not patient:
+    if patient_row.empty:
         return {"error": "Patient not found"}
+    
+    patient = patient_row.iloc[0]
     
     # Calculate trimester
     lmp = patient["lmp_date"]
     today = date.today()
-    if lmp:
+    if lmp and pd.notna(lmp):
         gestational_weeks = (today - lmp).days // 7
         trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
     else:
@@ -106,12 +109,8 @@ def generate_ration_plan(
     
     # Get latest EHR
     ehr_df = read_table(spark, "ehr_records")
-    latest_ehr = (
-        ehr_df.filter(F.col("patient_id") == patient_id)
-        .orderBy(F.col("visit_date").desc())
-        .limit(1)
-        .collect()
-    )
+    patient_ehrs = ehr_df[ehr_df["patient_id"] == patient_id].copy()
+    patient_ehrs = patient_ehrs.sort_values("visit_date", ascending=False).head(1)
     
     hb = None
     bmi = None
@@ -119,10 +118,10 @@ def generate_ration_plan(
     height_m = (patient["height_cm"] or 155) / 100
     conditions = []
     
-    if latest_ehr:
-        ehr = latest_ehr[0]
+    if not patient_ehrs.empty:
+        ehr = patient_ehrs.iloc[0]
         hb = ehr["hemoglobin"]
-        weight = ehr["weight_kg"] or weight
+        weight = ehr["weight_kg"] if pd.notna(ehr["weight_kg"]) else weight
         fasting_sugar = ehr["blood_sugar_fasting"]
         
         if hb and hb < 11:
@@ -305,37 +304,36 @@ Return ONLY a JSON object with this exact structure:
 def get_village_ration_summary(spark, asha_id: str = None) -> list:
     """
     Get ration distribution summary for all patients (village-level view).
-    
-    Returns list of {patient_name, trimester, ration_items, supplements, special_notes}
     """
     patients_df = read_table(spark, "patients_profiles")
     plans_df = read_table(spark, "ration_plans")
     
     if asha_id:
-        patients_df = patients_df.filter(F.col("asha_id") == asha_id)
+        patients_df = patients_df[patients_df["asha_id"] == asha_id]
     
     # Get latest plan per patient
-    from pyspark.sql.window import Window
-    w = Window.partitionBy("patient_id").orderBy(F.col("week_start_date").desc())
-    latest_plans = plans_df.withColumn("rn", F.row_number().over(w)).filter(F.col("rn") == 1).drop("rn")
-    
-    joined = patients_df.join(latest_plans, "patient_id", "left")
-    results = joined.select(
-        "name", "patient_id", "risk_status",
-        F.coalesce("trimester", F.lit(0)).alias("trimester"),
-        "ration_items", "supplements", "special_notes"
-    ).collect()
+    if not plans_df.empty:
+        plans_df = plans_df.sort_values("week_start_date", ascending=False)
+        latest_plans = plans_df.drop_duplicates(subset=["patient_id"], keep="first")
+        joined = patients_df.merge(latest_plans, on="patient_id", how="left", suffixes=("", "_plan"))
+    else:
+        joined = patients_df.copy()
+        joined["trimester"] = 0
+        joined["ration_items"] = ""
+        joined["supplements"] = ""
+        joined["special_notes"] = ""
     
     summary = []
-    for r in results:
+    for _, r in joined.iterrows():
+        tri = r.get("trimester_plan", r.get("trimester", 0))
         summary.append({
             "patient_name": r["name"],
             "patient_id": r["patient_id"],
             "risk_status": r["risk_status"],
-            "trimester": r["trimester"],
-            "ration_items": json.loads(r["ration_items"]) if r["ration_items"] else [],
-            "supplements": json.loads(r["supplements"]) if r["supplements"] else [],
-            "special_notes": r["special_notes"] or "",
+            "trimester": tri if pd.notna(tri) else 0,
+            "ration_items": json.loads(r["ration_items"]) if r.get("ration_items") and r["ration_items"] else [],
+            "supplements": json.loads(r["supplements"]) if r.get("supplements") and r["supplements"] else [],
+            "special_notes": r.get("special_notes", "") or "",
         })
     
     return summary

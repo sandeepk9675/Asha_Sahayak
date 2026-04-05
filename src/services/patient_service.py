@@ -1,16 +1,17 @@
 """
 Patient Service for ASHA-Sahayak.
-CRUD operations for patient profiles stored in Delta Lake.
+CRUD operations for patient profiles stored as CSV via Pandas.
 """
 
 import uuid
 from datetime import datetime, date, timedelta
 from typing import Optional
 
+import pandas as pd
+
 from src.utils.delta_utils import (
-    get_spark, read_table, append_rows, upsert_row, delete_row, read_table_pandas
+    get_spark, read_table, append_rows, update_rows, read_table_pandas
 )
-from pyspark.sql import functions as F
 
 
 def register_patient(
@@ -86,14 +87,15 @@ def register_patient(
 def get_patient(spark, patient_id: str) -> Optional[dict]:
     """Get a patient profile by ID."""
     df = read_table(spark, "patients_profiles")
-    row = df.filter(F.col("patient_id") == patient_id).first()
+    row = df[df["patient_id"] == patient_id]
     
-    if not row:
+    if row.empty:
         return None
     
+    row = row.iloc[0]
     today = date.today()
     lmp = row["lmp_date"]
-    gestational_weeks = (today - lmp).days // 7 if lmp else 0
+    gestational_weeks = (today - lmp).days // 7 if lmp and pd.notna(lmp) else 0
     trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
     
     return {
@@ -121,20 +123,19 @@ def list_patients(spark, asha_id: str = None) -> list:
     df = read_table(spark, "patients_profiles")
     
     if asha_id:
-        df = df.filter(F.col("asha_id") == asha_id)
+        df = df[df["asha_id"] == asha_id]
     
-    rows = df.orderBy(
-        F.when(F.col("risk_status") == "RED", 0)
-        .when(F.col("risk_status") == "YELLOW", 1)
-        .otherwise(2),
-        "name"
-    ).collect()
+    # Sort: RED first, then YELLOW, then GREEN, then by name
+    risk_order = {"RED": 0, "YELLOW": 1, "GREEN": 2}
+    df = df.copy()
+    df["_risk_order"] = df["risk_status"].map(risk_order).fillna(2)
+    df = df.sort_values(["_risk_order", "name"]).drop(columns=["_risk_order"])
     
     today = date.today()
     patients = []
-    for row in rows:
+    for _, row in df.iterrows():
         lmp = row["lmp_date"]
-        gestational_weeks = (today - lmp).days // 7 if lmp else 0
+        gestational_weeks = (today - lmp).days // 7 if lmp and pd.notna(lmp) else 0
         trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
         
         patients.append({
@@ -157,16 +158,15 @@ def search_patients(spark, query: str, asha_id: str = None) -> list:
     df = read_table(spark, "patients_profiles")
     
     if asha_id:
-        df = df.filter(F.col("asha_id") == asha_id)
+        df = df[df["asha_id"] == asha_id]
     
-    df = df.filter(
-        F.lower(F.col("name")).contains(query.lower()) |
-        F.lower(F.col("village")).contains(query.lower())
-    )
+    q = query.lower()
+    df = df[
+        df["name"].str.lower().str.contains(q, na=False) |
+        df["village"].str.lower().str.contains(q, na=False)
+    ]
     
-    rows = df.collect()
     today = date.today()
-    
     return [
         {
             "patient_id": r["patient_id"],
@@ -174,31 +174,21 @@ def search_patients(spark, query: str, asha_id: str = None) -> list:
             "age": r["age"],
             "village": r["village"],
             "risk_status": r["risk_status"],
-            "gestational_weeks": (today - r["lmp_date"]).days // 7 if r["lmp_date"] else 0,
+            "gestational_weeks": (today - r["lmp_date"]).days // 7 if r["lmp_date"] and pd.notna(r["lmp_date"]) else 0,
         }
-        for r in rows
+        for _, r in df.iterrows()
     ]
 
 
 def update_patient(spark, patient_id: str, **updates) -> dict:
     """Update patient profile fields."""
-    from src.utils.delta_utils import table_name
-    from delta.tables import DeltaTable
-    
     updates["last_updated"] = datetime.now()
     
     # Recalculate EDD if LMP changed
     if "lmp_date" in updates:
         updates["edd"] = updates["lmp_date"] + timedelta(days=280)
     
-    path = table_path("patients_profiles")
-    delta_table = DeltaTable.forPath(spark, path)
-    
-    set_clause = {k: F.lit(v) for k, v in updates.items()}
-    delta_table.update(
-        condition=F.col("patient_id") == patient_id,
-        set=set_clause,
-    )
+    update_rows(spark, "patients_profiles", "patient_id", patient_id, updates)
     
     return {"message": f"Patient {patient_id} updated successfully", "updates": {k: str(v) for k, v in updates.items()}}
 
@@ -206,14 +196,10 @@ def update_patient(spark, patient_id: str, **updates) -> dict:
 def _update_risk_status(spark, patient_id: str, risk_status: str):
     """Internal: update patient risk status."""
     try:
-        from src.utils.delta_utils import table_name
-        from delta.tables import DeltaTable
-        
-        delta_table = DeltaTable.forName(spark, table_name("patients_profiles"))
-        delta_table.update(
-            condition=F.col("patient_id") == patient_id,
-            set={"risk_status": F.lit(risk_status), "last_updated": F.lit(datetime.now())},
-        )
+        update_rows(spark, "patients_profiles", "patient_id", patient_id, {
+            "risk_status": risk_status,
+            "last_updated": datetime.now(),
+        })
     except Exception as e:
         print(f"Error updating risk status: {e}")
 
@@ -221,7 +207,6 @@ def _update_risk_status(spark, patient_id: str, risk_status: str):
 def get_patients_dataframe(spark, asha_id: str = None):
     """Return patients as Pandas DataFrame for Gradio display."""
     patients = list_patients(spark, asha_id)
-    import pandas as pd
     
     if not patients:
         return pd.DataFrame(columns=["Name", "Age", "Village", "Trimester", "Weeks", "Risk", "EDD"])

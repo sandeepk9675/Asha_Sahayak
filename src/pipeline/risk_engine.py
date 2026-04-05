@@ -9,8 +9,9 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from src.utils.delta_utils import get_spark, read_table, append_rows, upsert_row
-from pyspark.sql import functions as F
+import pandas as pd
+
+from src.utils.delta_utils import read_table, append_rows, update_rows
 
 
 # ---------------------------------------------------------------------------
@@ -48,9 +49,9 @@ def assess_risk(
     
     # ---- Get patient profile ----
     patients_df = read_table(spark, "patients_profiles")
-    patient = patients_df.filter(F.col("patient_id") == patient_id).first()
+    patient_row = patients_df[patients_df["patient_id"] == patient_id]
     
-    if not patient:
+    if patient_row.empty:
         return {
             "risk_level": "GREEN",
             "risk_factors": ["Patient not found"],
@@ -59,19 +60,15 @@ def assess_risk(
             "auto_appointment_created": False,
         }
     
-    age = patient["age"]
+    age = patient_row.iloc[0]["age"]
     
     # ---- Get latest EHR (if not provided) ----
     if ehr_data is None:
         ehr_df = read_table(spark, "ehr_records")
-        latest_ehr = (
-            ehr_df.filter(F.col("patient_id") == patient_id)
-            .orderBy(F.col("visit_date").desc())
-            .limit(1)
-            .collect()
-        )
-        if latest_ehr:
-            ehr = latest_ehr[0]
+        patient_ehrs = ehr_df[ehr_df["patient_id"] == patient_id].copy()
+        patient_ehrs = patient_ehrs.sort_values("visit_date", ascending=False).head(1)
+        if not patient_ehrs.empty:
+            ehr = patient_ehrs.iloc[0]
             ehr_data = {
                 "hemoglobin": ehr["hemoglobin"],
                 "bp_systolic": ehr["bp_systolic"],
@@ -222,17 +219,10 @@ def assess_risk(
     
     # ---- Update patient risk status ----
     try:
-        from delta.tables import DeltaTable
-        from src.utils.delta_utils import table_name
-        
-        delta_table = DeltaTable.forName(spark, table_name("patients_profiles"))
-        delta_table.update(
-            condition=F.col("patient_id") == patient_id,
-            set={
-                "risk_status": F.lit(risk_level),
-                "last_updated": F.lit(datetime.now()),
-            },
-        )
+        update_rows(spark, "patients_profiles", "patient_id", patient_id, {
+            "risk_status": risk_level,
+            "last_updated": datetime.now(),
+        })
     except Exception as e:
         print(f"Error updating patient risk status: {e}")
     
@@ -275,20 +265,16 @@ def _create_emergency_appointment(spark, patient_id: str, notes: str):
 def get_patient_risk_summary(spark, patient_id: str) -> dict:
     """Get the latest risk assessment for a patient."""
     risk_df = read_table(spark, "risk_assessments")
-    latest = (
-        risk_df.filter(F.col("patient_id") == patient_id)
-        .orderBy(F.col("assessment_date").desc())
-        .limit(1)
-        .collect()
-    )
+    patient_risks = risk_df[risk_df["patient_id"] == patient_id].copy()
+    patient_risks = patient_risks.sort_values("assessment_date", ascending=False).head(1)
     
-    if latest:
-        r = latest[0]
+    if not patient_risks.empty:
+        r = patient_risks.iloc[0]
         return {
             "risk_level": r["risk_level"],
             "risk_factors": json.loads(r["risk_factors"]) if r["risk_factors"] else [],
             "recommended_action": r["recommended_action"],
-            "emergency_flag": r["emergency_flag"],
+            "emergency_flag": bool(r["emergency_flag"]),
             "assessment_date": str(r["assessment_date"]),
         }
     

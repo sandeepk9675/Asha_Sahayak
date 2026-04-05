@@ -8,14 +8,13 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from src.utils.delta_utils import get_spark, read_table, append_rows
+from src.utils.delta_utils import read_table, append_rows
 from src.pipeline.language_pipeline import (
     process_text_input,
     process_audio_input,
     process_image_input,
 )
 from src.pipeline.risk_engine import assess_risk
-from pyspark.sql import functions as F
 
 
 def chat(
@@ -111,23 +110,19 @@ def chat(
 def get_chat_history(spark, patient_id: str, limit: int = 20) -> list:
     """Get conversation history for a patient."""
     conv_df = read_table(spark, "conversations")
-    rows = (
-        conv_df.filter(F.col("patient_id") == patient_id)
-        .orderBy(F.col("timestamp").desc())
-        .limit(limit)
-        .collect()
-    )
+    df = conv_df[conv_df["patient_id"] == patient_id].copy()
+    df = df.sort_values("timestamp", ascending=False).head(limit)
     
     # Reverse so oldest shows first
-    rows = list(reversed(rows))
+    df = df.iloc[::-1]
     
     history = []
-    for row in rows:
+    for _, row in df.iterrows():
         history.append({
             "timestamp": str(row["timestamp"]),
             "input_type": row["input_type"],
             "user_message": row["original_input"],
-            "ai_response": row["translated_response"] or row["ai_response"],
+            "ai_response": row["translated_response"] if row["translated_response"] else row["ai_response"],
         })
     
     return history

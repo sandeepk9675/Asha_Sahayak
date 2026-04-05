@@ -8,8 +8,9 @@ import uuid
 from datetime import date, timedelta
 from typing import Optional
 
-from src.utils.delta_utils import read_table, append_rows, table_name
-from pyspark.sql import functions as F
+import pandas as pd
+
+from src.utils.delta_utils import read_table, append_rows, delete_rows
 
 
 # ---------------------------------------------------------------------------
@@ -98,13 +99,14 @@ def generate_schedule(spark, patient_id: str) -> list:
         List of schedule dicts with dates and tests
     """
     patients_df = read_table(spark, "patients_profiles")
-    patient = patients_df.filter(F.col("patient_id") == patient_id).first()
+    patient_row = patients_df[patients_df["patient_id"] == patient_id]
     
-    if not patient:
+    if patient_row.empty:
         return []
     
+    patient = patient_row.iloc[0]
     lmp = patient["lmp_date"]
-    if not lmp:
+    if not lmp or pd.isna(lmp):
         return []
     
     risk_status = patient["risk_status"] or "GREEN"
@@ -166,18 +168,16 @@ def _check_existing_schedule(spark, patient_id: str, visit_number: int) -> Optio
     """Check if a schedule entry already exists."""
     try:
         sched_df = read_table(spark, "checkup_schedules")
-        existing = (
-            sched_df.filter(
-                (F.col("patient_id") == patient_id) & 
-                (F.col("visit_number") == visit_number)
-            )
-            .first()
-        )
-        if existing:
+        existing = sched_df[
+            (sched_df["patient_id"] == patient_id) &
+            (sched_df["visit_number"] == visit_number)
+        ]
+        if not existing.empty:
+            row = existing.iloc[0]
             return {
-                "schedule_id": existing["schedule_id"],
-                "status": existing["status"],
-                "actual_date": existing["actual_date"],
+                "schedule_id": row["schedule_id"],
+                "status": row["status"],
+                "actual_date": row["actual_date"],
             }
     except Exception:
         pass
@@ -268,18 +268,14 @@ def _generate_high_risk_visits(lmp: date, current_week: int, patient_id: str, st
 
 
 def _store_schedules(spark, patient_id: str, schedules: list):
-    """Store schedule entries in Delta Lake (replace existing for patient)."""
+    """Store schedule entries (replace existing for patient)."""
     if not schedules:
         return
     
     try:
-        from delta.tables import DeltaTable
-        
         # Delete existing schedules for this patient, then insert new
-        full_table_name = table_name("checkup_schedules")
         try:
-            delta_table = DeltaTable.forName(spark, full_table_name)
-            delta_table.delete(F.col("patient_id") == patient_id)
+            delete_rows(spark, "checkup_schedules", "patient_id", patient_id)
         except Exception:
             pass
         
@@ -296,30 +292,30 @@ def get_today_schedule(spark, asha_id: str = None) -> list:
     patients_df = read_table(spark, "patients_profiles")
     
     if asha_id:
-        patients_df = patients_df.filter(F.col("asha_id") == asha_id)
+        patients_df = patients_df[patients_df["asha_id"] == asha_id]
     
-    today_visits = (
-        sched_df
-        .filter(
-            (F.col("scheduled_date") == today) & 
-            (F.col("status").isin("PENDING", "OVERDUE"))
-        )
-        .join(patients_df.select("patient_id", "name", "village", "risk_status"), "patient_id")
-        .orderBy("scheduled_date")
-        .collect()
+    today_visits = sched_df[
+        (sched_df["scheduled_date"] == today) &
+        (sched_df["status"].isin(["PENDING", "OVERDUE"]))
+    ]
+    
+    merged = today_visits.merge(
+        patients_df[["patient_id", "name", "village", "risk_status"]],
+        on="patient_id",
+        how="inner",
     )
     
     return [
         {
-            "patient_name": v["name"],
-            "patient_id": v["patient_id"],
-            "village": v["village"],
-            "risk_status": v["risk_status"],
-            "visit_type": v["visit_type"],
-            "tests_due": json.loads(v["tests_due"]) if v["tests_due"] else [],
-            "status": v["status"],
+            "patient_name": row["name"],
+            "patient_id": row["patient_id"],
+            "village": row["village"],
+            "risk_status": row["risk_status"],
+            "visit_type": row["visit_type"],
+            "tests_due": json.loads(row["tests_due"]) if row["tests_due"] else [],
+            "status": row["status"],
         }
-        for v in today_visits
+        for _, row in merged.iterrows()
     ]
 
 
@@ -329,29 +325,30 @@ def get_overdue_checkups(spark, asha_id: str = None) -> list:
     patients_df = read_table(spark, "patients_profiles")
     
     if asha_id:
-        patients_df = patients_df.filter(F.col("asha_id") == asha_id)
+        patients_df = patients_df[patients_df["asha_id"] == asha_id]
     
     today = date.today()
-    overdue = (
-        sched_df
-        .filter(
-            (F.col("scheduled_date") < today) & 
-            (F.col("status") == "PENDING")
-        )
-        .join(patients_df.select("patient_id", "name", "village", "risk_status"), "patient_id")
-        .orderBy("scheduled_date")
-        .collect()
+    overdue_df = sched_df[
+        (sched_df["scheduled_date"] < today) &
+        (sched_df["status"] == "PENDING")
+    ]
+    
+    merged = overdue_df.merge(
+        patients_df[["patient_id", "name", "village", "risk_status"]],
+        on="patient_id",
+        how="inner",
     )
+    merged = merged.sort_values("scheduled_date")
     
     return [
         {
-            "patient_name": v["name"],
-            "patient_id": v["patient_id"],
-            "village": v["village"],
-            "risk_status": v["risk_status"],
-            "visit_type": v["visit_type"],
-            "scheduled_date": str(v["scheduled_date"]),
-            "days_overdue": (today - v["scheduled_date"]).days,
+            "patient_name": row["name"],
+            "patient_id": row["patient_id"],
+            "village": row["village"],
+            "risk_status": row["risk_status"],
+            "visit_type": row["visit_type"],
+            "scheduled_date": str(row["scheduled_date"]),
+            "days_overdue": (today - row["scheduled_date"]).days if row["scheduled_date"] else 0,
         }
-        for v in overdue
+        for _, row in merged.iterrows()
     ]

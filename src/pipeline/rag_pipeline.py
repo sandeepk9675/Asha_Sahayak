@@ -93,26 +93,24 @@ def search_guidelines(query: str, top_k: int = 5) -> list[dict]:
 
 def assemble_patient_context(spark, patient_id: str) -> str:
     """
-    Assemble comprehensive patient context from Delta Lake tables.
-
-    Returns a formatted string with patient profile, recent EHRs,
-    recent conversations, and current risk status.
+    Assemble comprehensive patient context from CSV tables.
     """
     from src.utils.delta_utils import read_table
-    from pyspark.sql import functions as F
+    import pandas as pd
 
     context_parts = []
 
     # 1. Patient Profile
     try:
         patients_df = read_table(spark, "patients_profiles")
-        patient = patients_df.filter(F.col("patient_id") == patient_id).first()
-        if patient:
+        row = patients_df[patients_df["patient_id"] == patient_id]
+        if not row.empty:
+            patient = row.iloc[0]
             from datetime import date
 
             today = date.today()
             lmp = patient["lmp_date"]
-            if lmp:
+            if lmp and pd.notna(lmp):
                 gestational_days = (today - lmp).days
                 gestational_weeks = gestational_days // 7
                 trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
@@ -140,15 +138,11 @@ def assemble_patient_context(spark, patient_id: str) -> str:
     # 2. Recent EHR Records (last 3)
     try:
         ehr_df = read_table(spark, "ehr_records")
-        recent_ehrs = (
-            ehr_df.filter(F.col("patient_id") == patient_id)
-            .orderBy(F.col("visit_date").desc())
-            .limit(3)
-            .collect()
-        )
-        if recent_ehrs:
+        recent_ehrs = ehr_df[ehr_df["patient_id"] == patient_id].copy()
+        recent_ehrs = recent_ehrs.sort_values("visit_date", ascending=False).head(3)
+        if not recent_ehrs.empty:
             context_parts.append("\n## Recent Health Records")
-            for ehr in recent_ehrs:
+            for _, ehr in recent_ehrs.iterrows():
                 context_parts.append(
                     f"\nVisit Date: {ehr['visit_date']} (Week {ehr['gestational_weeks']}, T{ehr['trimester']})\n"
                     f"  Hemoglobin: {ehr['hemoglobin']} g/dL\n"
@@ -158,7 +152,7 @@ def assemble_patient_context(spark, patient_id: str) -> str:
                     f"  Urine Sugar: {ehr['urine_sugar']}\n"
                     f"  Fasting Blood Sugar: {ehr['blood_sugar_fasting']} mg/dL\n"
                     f"  PP Blood Sugar: {ehr['blood_sugar_pp']} mg/dL\n"
-                    f"  Medicines: {ehr['prescribed_medicines']}\n"
+                    f"  Medicines: {ehr.get('prescribed_medicines', '')}\n"
                 )
     except Exception:
         pass
@@ -166,15 +160,11 @@ def assemble_patient_context(spark, patient_id: str) -> str:
     # 3. Recent Conversations (last 3)
     try:
         conv_df = read_table(spark, "conversations")
-        recent_convs = (
-            conv_df.filter(F.col("patient_id") == patient_id)
-            .orderBy(F.col("timestamp").desc())
-            .limit(3)
-            .collect()
-        )
-        if recent_convs:
+        recent_convs = conv_df[conv_df["patient_id"] == patient_id].copy()
+        recent_convs = recent_convs.sort_values("timestamp", ascending=False).head(3)
+        if not recent_convs.empty:
             context_parts.append("\n## Recent Conversations")
-            for conv in recent_convs:
+            for _, conv in recent_convs.iterrows():
                 context_parts.append(
                     f"\n[{conv['timestamp']}] ASHA: {conv['translated_input']}\n"
                     f"AI: {conv['ai_response']}\n"
@@ -185,14 +175,10 @@ def assemble_patient_context(spark, patient_id: str) -> str:
     # 4. Risk Assessments
     try:
         risk_df = read_table(spark, "risk_assessments")
-        latest_risk = (
-            risk_df.filter(F.col("patient_id") == patient_id)
-            .orderBy(F.col("assessment_date").desc())
-            .limit(1)
-            .collect()
-        )
-        if latest_risk:
-            r = latest_risk[0]
+        patient_risks = risk_df[risk_df["patient_id"] == patient_id].copy()
+        patient_risks = patient_risks.sort_values("assessment_date", ascending=False).head(1)
+        if not patient_risks.empty:
+            r = patient_risks.iloc[0]
             context_parts.append(
                 f"\n## Latest Risk Assessment\n"
                 f"Level: {r['risk_level']}\n"

@@ -1,6 +1,6 @@
 """
 EHR (Electronic Health Record) Service for ASHA-Sahayak.
-Handles EHR upload → OCR → parsing → storage in Delta Lake.
+Handles EHR upload → OCR → parsing → storage via Pandas CSV.
 """
 
 import json
@@ -9,9 +9,10 @@ import re
 from datetime import datetime, date
 from typing import Optional
 
-from src.utils.delta_utils import get_spark, read_table, append_rows
+import pandas as pd
+
+from src.utils.delta_utils import read_table, append_rows
 from src.api.sarvam_client import extract_text_from_image, chat_completion
-from pyspark.sql import functions as F
 
 
 def upload_ehr_image(
@@ -23,16 +24,8 @@ def upload_ehr_image(
     Process an uploaded EHR image:
     1. OCR via Sarvam Mayura Vision API
     2. LLM parsing to structured fields
-    3. Store in Delta Lake
+    3. Store in CSV
     4. Run risk assessment
-    
-    Args:
-        spark: SparkSession
-        patient_id: Patient UUID
-        image_path: Path to uploaded image
-        
-    Returns:
-        Parsed EHR data dict
     """
     # Step 1: Extract text from image
     extracted_text = extract_text_from_image(
@@ -51,16 +44,18 @@ def upload_ehr_image(
     
     # Step 3: Calculate gestational info
     patients_df = read_table(spark, "patients_profiles")
-    patient = patients_df.filter(F.col("patient_id") == patient_id).first()
+    patient_row = patients_df[patients_df["patient_id"] == patient_id]
     
     gestational_weeks = 0
     trimester = 1
-    if patient and patient["lmp_date"]:
-        gestational_days = (date.today() - patient["lmp_date"]).days
-        gestational_weeks = gestational_days // 7
-        trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
+    if not patient_row.empty:
+        lmp = patient_row.iloc[0]["lmp_date"]
+        if lmp and pd.notna(lmp):
+            gestational_days = (date.today() - lmp).days
+            gestational_weeks = gestational_days // 7
+            trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
     
-    # Step 4: Store in Delta Lake
+    # Step 4: Store record
     record_id = str(uuid.uuid4())
     ehr_record = {
         "record_id": record_id,
@@ -82,7 +77,7 @@ def upload_ehr_image(
         "usg_findings": parsed.get("usg_findings"),
         "prescribed_medicines": parsed.get("prescribed_medicines"),
         "raw_document_path": image_path,
-        "extracted_text": extracted_text[:2000],  # Truncate for storage
+        "extracted_text": extracted_text[:2000],
         "created_at": datetime.now(),
     }
     
@@ -117,14 +112,16 @@ def add_ehr_manual(
 ) -> dict:
     """Add EHR record manually (when image upload isn't available)."""
     patients_df = read_table(spark, "patients_profiles")
-    patient = patients_df.filter(F.col("patient_id") == patient_id).first()
+    patient_row = patients_df[patients_df["patient_id"] == patient_id]
     
     gestational_weeks = 0
     trimester = 1
-    if patient and patient["lmp_date"]:
-        gestational_days = (date.today() - patient["lmp_date"]).days
-        gestational_weeks = gestational_days // 7
-        trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
+    if not patient_row.empty:
+        lmp = patient_row.iloc[0]["lmp_date"]
+        if lmp and pd.notna(lmp):
+            gestational_days = (date.today() - lmp).days
+            gestational_weeks = gestational_days // 7
+            trimester = 1 if gestational_weeks <= 12 else (2 if gestational_weeks <= 27 else 3)
     
     record_id = str(uuid.uuid4())
     ehr_record = {
@@ -168,11 +165,8 @@ def add_ehr_manual(
 def get_patient_ehrs(spark, patient_id: str) -> list:
     """Get all EHR records for a patient, most recent first."""
     ehr_df = read_table(spark, "ehr_records")
-    rows = (
-        ehr_df.filter(F.col("patient_id") == patient_id)
-        .orderBy(F.col("visit_date").desc())
-        .collect()
-    )
+    df = ehr_df[ehr_df["patient_id"] == patient_id].copy()
+    df = df.sort_values("visit_date", ascending=False)
     
     return [
         {
@@ -181,22 +175,21 @@ def get_patient_ehrs(spark, patient_id: str) -> list:
             "trimester": r["trimester"],
             "gestational_weeks": r["gestational_weeks"],
             "hemoglobin": r["hemoglobin"],
-            "bp": f"{r['bp_systolic']}/{r['bp_diastolic']}" if r['bp_systolic'] else "N/A",
+            "bp": f"{int(r['bp_systolic'])}/{int(r['bp_diastolic'])}" if pd.notna(r.get("bp_systolic")) else "N/A",
             "weight_kg": r["weight_kg"],
             "urine_albumin": r["urine_albumin"],
             "urine_sugar": r["urine_sugar"],
             "blood_sugar_fasting": r["blood_sugar_fasting"],
             "blood_sugar_pp": r["blood_sugar_pp"],
-            "usg_findings": r["usg_findings"],
-            "prescribed_medicines": r["prescribed_medicines"],
+            "usg_findings": r.get("usg_findings", ""),
+            "prescribed_medicines": r.get("prescribed_medicines", ""),
         }
-        for r in rows
+        for _, r in df.iterrows()
     ]
 
 
 def get_ehrs_dataframe(spark, patient_id: str):
     """Return EHRs as Pandas DataFrame for display."""
-    import pandas as pd
     ehrs = get_patient_ehrs(spark, patient_id)
     
     if not ehrs:
